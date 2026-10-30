@@ -24,7 +24,8 @@ WEIGHT_URLS = {
 }
 NAF_REPO = 'mikestealth/nafnet-models'  # 3rd-party HF mirror of the official SIDD checkpoint
 NAF_FILE = 'NAFNet-SIDD-width32.pth'
-NAF_SHA256 = '89c70e808d1783b6c07911306e106aaf0d4f7f8929a26f4'
+NAF_SHA256 = "89c70e808d1783b6c07911306e106aaf0d4f7f3da8c61078b99ff7f8929a26f4"
+
 
 
 def download(url: str, destination: Path, min_bytes: int = 1024, sha256: str | None = None):

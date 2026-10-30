@@ -27,13 +27,35 @@ def setup_device():
 
 
 def dataset_counts(manifest: Path = ROOT / 'data/splits.csv'):
+    """Validate the shared SIDD + PolyU 5000-pair manifest."""
     with Path(manifest).open(newline='', encoding='utf8') as file:
         rows = list(csv.DictReader(file))
-    counts = {split: sum(r['split'] == split for r in rows) for split in ('train', 'val', 'test')}
-    if counts != {'train': 4000, 'val': 500, 'test': 500}:
-        raise ValueError(f'Dataset must have exactly 4000/500/500 samples; got {counts}')
-    if len(set(r['path'] for r in rows)) != len(rows):
-        raise ValueError('Duplicate image paths in manifest')
+    required = {'split', 'noisy_path', 'clean_path'}
+    if rows and 'dataset' in rows[0]:
+        source_key = 'dataset'
+    elif rows and 'source' in rows[0]:
+        source_key = 'source'
+    else:
+        raise ValueError('Manifest must contain a dataset or source column')
+    if not rows or not required.issubset(rows[0]):
+        raise ValueError('Manifest requires split, noisy_path, and clean_path columns')
+    expected = {('SIDD', 'train'): 2800, ('SIDD', 'val'): 350, ('SIDD', 'test'): 350,
+                ('PolyU', 'train'): 1200, ('PolyU', 'val'): 150, ('PolyU', 'test'): 150}
+    actual = {key: 0 for key in expected}
+    seen_pairs = set()
+    for row in rows:
+        key = (row[source_key], row['split'])
+        if key not in actual:
+            raise ValueError(f'Unexpected source or split: {key}')
+        actual[key] += 1
+        pair = (row[source_key], row['noisy_path'], row['clean_path'])
+        if pair in seen_pairs:
+            raise ValueError(f'Duplicate image pair: {pair}')
+        seen_pairs.add(pair)
+    if actual != expected:
+        raise ValueError(f'Incorrect SIDD/PolyU quotas: {actual}')
+    # The manifest has already undergone scene verification in notebook 01.
+    counts = {s: sum(actual[(d, s)] for d in ('SIDD', 'PolyU')) for s in ('train', 'val', 'test')}
     return counts
 
 
