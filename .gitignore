@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.pytest_cache/
+cache/
+data/raw/
+data/splits.csv
+weights/*.pth
+results/*.csv
+results/*.json
+results/*.png
+*.pyc
