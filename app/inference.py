@@ -8,7 +8,12 @@ import torch
 from torch.nn import functional as F
 from .models import NAMES, create_model, load_checkpoint, checkpoint_path
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+else:
+    DEVICE = torch.device("cpu")
 MODE = os.environ.get('IMAGE_MODE', 'preview').lower()
 if MODE not in ('preview', 'real'):
     raise ValueError('IMAGE_MODE must be preview or real')
