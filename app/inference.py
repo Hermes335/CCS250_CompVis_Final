@@ -106,6 +106,8 @@ def run(name: str, image: Image.Image):
         out = tiled_forward(net, tensor, name, tile=int(os.getenv('IMAGE_TILE', '256')))
         if DEVICE.type == 'cuda':
             torch.cuda.synchronize()
+        elif DEVICE.type == 'mps':
+            torch.mps.synchronize()
         elapsed = (time.perf_counter() - begin) * 1000
         outarr = (out[0].permute(1, 2, 0).cpu().numpy() * 255).round().astype(np.uint8)
         return Image.fromarray(outarr), {

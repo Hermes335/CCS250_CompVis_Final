@@ -6,7 +6,7 @@ import io
 from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from .models import NAMES
 from .online import get_active_checkpoint
@@ -107,3 +107,45 @@ async def denoise(image: UploadFile = File(...), reference: UploadFile | None = 
     return {'mode': MODE, 'input': png_data_uri(img), 'reference_supplied': ref is not None,
             'size': {'width': img.width, 'height': img.height},
             'models': outputs, 'best': best, 'best_reason': best_reason}
+
+
+@app.post('/api/denoise/stream')
+async def denoise_stream(image: UploadFile = File(...), reference: UploadFile | None = File(None)):
+    """Newline-delimited JSON events; actual per-model completion, one GPU job at a time."""
+    img = load_image(await image.read(MAX_BYTES + 1))
+    ref = load_image(await reference.read(MAX_BYTES + 1)) if reference and reference.filename else None
+    if ref and ref.size != img.size:
+        raise HTTPException(422, 'Clean reference dimensions must match noisy input after resizing')
+    input_uri, _, _ = png_payload(img)
+
+    def events():
+        def emit(value):
+            return json.dumps(value, separators=(',', ':')) + '\n'
+
+        yield emit({'event': 'start', 'input': input_uri,
+                    'size': {'width': img.width, 'height': img.height},
+                    'mode': MODE, 'models': list(NAMES), 'reference_supplied': ref is not None})
+        for name in NAMES:
+            yield emit({'event': 'model_started', 'key': name})
+            try:
+                result, info = run(name, img)
+                uri, output_bytes, _ = png_payload(result)
+                payload = {'event': 'model_finished', 'key': name,
+                           'image': uri, 'file_size_bytes': output_bytes, **info}
+                if ref is not None:
+                    payload['metrics'] = image_metrics(ref, result)
+                yield emit(payload)
+            except Exception as exc:
+                yield emit({'event': 'model_failed', 'key': name,
+                            'error': f'{type(exc).__name__}: {exc}'})
+        yield emit({'event': 'done'})
+
+    return StreamingResponse(events(), media_type='application/x-ndjson',
+                             headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+def png_payload(im: Image.Image):
+    buffer = io.BytesIO()
+    im.save(buffer, format='PNG')
+    raw = buffer.getvalue()
+    return 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii'), len(raw), raw
