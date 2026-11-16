@@ -40,3 +40,6 @@ data/inventory/
 
 # Unused NIND dataset downloader
 scripts/nind_downloader.py
+
+# Versioned training runs (large checkpoints, logs and evaluation artifacts)
+experiments/
