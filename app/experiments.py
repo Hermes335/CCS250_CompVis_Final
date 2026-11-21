@@ -30,31 +30,36 @@ def dataset_counts(manifest: Path = ROOT / 'data/splits.csv'):
     """Validate the shared SIDD + PolyU 5000-pair manifest."""
     with Path(manifest).open(newline='', encoding='utf8') as file:
         rows = list(csv.DictReader(file))
-    required = {'split', 'noisy_path', 'clean_path'}
-    if rows and 'dataset' in rows[0]:
-        source_key = 'dataset'
-    elif rows and 'source' in rows[0]:
-        source_key = 'source'
-    else:
-        raise ValueError('Manifest must contain a dataset or source column')
+    required = {'source', 'split', 'noisy_path', 'clean_path', 'group_id'}
     if not rows or not required.issubset(rows[0]):
-        raise ValueError('Manifest requires split, noisy_path, and clean_path columns')
+        raise ValueError(f'Manifest requires columns: {sorted(required)}')
     expected = {('SIDD', 'train'): 2800, ('SIDD', 'val'): 350, ('SIDD', 'test'): 350,
                 ('PolyU', 'train'): 1200, ('PolyU', 'val'): 150, ('PolyU', 'test'): 150}
     actual = {key: 0 for key in expected}
-    seen_pairs = set()
+    seen_noisy = set()
+    group_splits = {}
+    clean_splits = {}
     for row in rows:
-        key = (row[source_key], row['split'])
+        key = (row['source'], row['split'])
         if key not in actual:
             raise ValueError(f'Unexpected source or split: {key}')
         actual[key] += 1
-        pair = (row[source_key], row['noisy_path'], row['clean_path'])
-        if pair in seen_pairs:
-            raise ValueError(f'Duplicate image pair: {pair}')
-        seen_pairs.add(pair)
+        noisy = row['noisy_path']
+        group = (row['source'], row['group_id'])
+        if not noisy or not row['clean_path'] or not row['group_id']:
+            raise ValueError('Manifest contains a blank image path or group_id')
+        if noisy in seen_noisy:
+            raise ValueError(f'Duplicate noisy image: {noisy}')
+        seen_noisy.add(noisy)
+        if group in group_splits and group_splits[group] != row['split']:
+            raise ValueError(f'Scene group crosses splits: {group}')
+        group_splits[group] = row['split']
+        clean = row['clean_path']
+        if clean in clean_splits and clean_splits[clean] != row['split']:
+            raise ValueError(f'Clean image crosses splits: {clean}')
+        clean_splits[clean] = row['split']
     if actual != expected:
         raise ValueError(f'Incorrect SIDD/PolyU quotas: {actual}')
-    # The manifest has already undergone scene verification in notebook 01.
     counts = {s: sum(actual[(d, s)] for d in ('SIDD', 'PolyU')) for s in ('train', 'val', 'test')}
     return counts
 
@@ -70,7 +75,7 @@ def get_network(name: str, device=None, checkpoint: Path | str | None = None):
 
 
 def validation_psnr(network, dataset, device, limit: int = 500):
-    """Fixed noise/center crops on the validation split. No use of test set."""
+    """Fixed paired-image center crops on the validation split."""
     network.eval()
     scores = []
     with torch.inference_mode():
@@ -87,14 +92,14 @@ def validation_psnr(network, dataset, device, limit: int = 500):
     return float(np.mean(scores))
 
 
-def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, sigma=25, lr=1e-5,
+def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, lr=1e-5,
               validation_limit=500, max_train_steps=0, seed=42, patience=3, checkpoint=None):
     """Fine-tune a published checkpoint; never train from random weights by accident."""
     dataset_counts()
     torch.manual_seed(seed)
     device = setup_device()
-    training = DenoiseDataset(ROOT/'data/splits.csv','train',patch=patch,sigma=sigma,seed=seed)
-    validating = DenoiseDataset(ROOT/'data/splits.csv','val',patch=patch,sigma=sigma,seed=seed)
+    training = DenoiseDataset(ROOT/'data/splits.csv','train',patch=patch,seed=seed)
+    validating = DenoiseDataset(ROOT/'data/splits.csv','val',patch=patch,seed=seed)
     train_loader = DataLoader(training,batch_size=batch_size,shuffle=True,num_workers=0,pin_memory=device.type=='cuda')
     net, source = get_network(name,device,checkpoint)
     print(f'{name}: fine-tuning on {device} from {source.name}; {len(training)} train, {len(validating)} validation')
@@ -104,8 +109,9 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, sigma=25, lr=1e-5
     history=[]; best=-float('inf'); stale=0; start=time.perf_counter()
     for epoch in range(epochs):
         training.epoch=epoch
-        net.train(); losses=[]
+        net.train(); losses=[]; train_seen=0
         for step,(noisy,clean) in enumerate(tqdm(train_loader,desc=f'{name} epoch {epoch+1}/{epochs}')):
+            train_seen += noisy.shape[0]
             noisy,clean=noisy.to(device),clean.to(device)
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type=device.type,enabled=device.type=='cuda'):
@@ -125,9 +131,9 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, sigma=25, lr=1e-5
         history.append(row);print(row)
         if val>best+1e-4:
             best=val;stale=0
-            torch.save({'state_dict':net.state_dict(), 'meta':{'name':name,'epoch':epoch+1,'sigma':sigma,
+            torch.save({'state_dict':net.state_dict(), 'meta':{'name':name,'epoch':epoch+1,'noise_type':'paired_real',
                        'validation_psnr':val,'training_time_min':elapsed,'seed':seed,
-                       'training_samples':4000,'validation_samples':validation_limit or 500,
+                       'training_samples':train_seen,'validation_samples':min(validation_limit or 500, len(validating)),
                        'max_train_steps':max_train_steps,'source':source.name}},dest)
         else:
             stale+=1
@@ -142,14 +148,14 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, sigma=25, lr=1e-5
     return history
 
 
-def evaluate_model(name: str, *, checkpoint=None, patch=256, sigma=25, seed=42,
+def evaluate_model(name: str, *, checkpoint=None, patch=256, seed=42,
                    limit=0, tile=256):
     """Untouched test set; limit=0 means evaluate all 500 images.
     Timing uses model forward and GPU synchronization, excludes checkpoint loading.
     """
     dataset_counts()
     device=setup_device()
-    ds=DenoiseDataset(ROOT/'data/splits.csv','test',patch=patch,sigma=sigma,seed=seed)
+    ds=DenoiseDataset(ROOT/'data/splits.csv','test',patch=patch,seed=seed)
     net,source=get_network(name,device,checkpoint)
     net.eval()
     first=ds[0][0][None].to(device)
@@ -174,14 +180,10 @@ def evaluate_model(name: str, *, checkpoint=None, patch=256, sigma=25, seed=42,
     out=ROOT/'results';out.mkdir(parents=True,exist_ok=True)
     with (out/f'{name}_test.csv').open('w',newline='',encoding='utf8') as f:
         writer=csv.DictWriter(f,fieldnames=['index','psnr','ssim','runtime_ms']);writer.writeheader();writer.writerows(rows)
-    deployed=ROOT/'weights'/f'{name}.pth'
-    if source==deployed or source==get_active_checkpoint(name):
-        cksrc=source
-    else:cksrc=source
-    summary={'model':name,'checkpoint':str(cksrc),'checkpoint_sha256':hashlib.sha256(cksrc.read_bytes()).hexdigest(),
+    summary={'model':name,'checkpoint':str(source),'checkpoint_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
              'manifest_sha256':hashlib.sha256((ROOT/'data/splits.csv').read_bytes()).hexdigest(),
              'split':'test','number_of_test_images':len(rows),'limited_test':bool(limit),
-             'sigma':sigma,'patch':patch,'seed':seed,'tile':tile,'device':str(device),
+             'noise_type':'paired_real','evaluation_area':'center_crop','patch':patch,'seed':seed,'tile':tile,'device':str(device),
              'psnr_db':round(float(np.mean([r['psnr'] for r in rows])),4),
              'ssim':round(float(np.mean([r['ssim'] for r in rows])),5),
              'mean_runtime_ms':round(float(np.mean([r['runtime_ms'] for r in rows])),2),

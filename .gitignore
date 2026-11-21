@@ -34,9 +34,3 @@ results/
 # Windows
 Thumbs.db
 Desktop.ini
-
-# Data directories for training and evaluation
-data/inventory/
-
-# Unused NIND dataset downloader
-scripts/nind_downloader.py
