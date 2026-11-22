@@ -37,3 +37,7 @@ results/
 # Windows
 Thumbs.db
 Desktop.ini
+
+
+# Versioned training runs (large checkpoints, logs and evaluation artifacts)
+experiments/

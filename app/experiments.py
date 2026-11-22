@@ -1,21 +1,13 @@
-"""Reusable experiment methods called from Jupyter notebooks.
-Train/validation/test are always sourced from the same immutable manifest.
-These functions never silently substitute a filter for a neural network.
-"""
+"""Versioned, reproducible training and evaluation helpers for iMAGE."""
 from __future__ import annotations
-import csv
-import hashlib
-import json
-import time
+import csv, hashlib, json, time
 from pathlib import Path
-
 import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from tqdm.auto import tqdm
-
 from .data import DenoiseDataset
 from .models import ROOT, NAMES, create_model, load_checkpoint
 from .online import get_active_checkpoint
@@ -23,7 +15,9 @@ from .inference import tiled_forward
 
 
 def setup_device():
-    return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.is_available(): return torch.device('cuda')
+    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available(): return torch.device('mps')
+    return torch.device('cpu')
 
 
 def dataset_counts(manifest: Path = ROOT / 'data/splits.csv'):
@@ -64,14 +58,12 @@ def dataset_counts(manifest: Path = ROOT / 'data/splits.csv'):
     return counts
 
 
-def get_network(name: str, device=None, checkpoint: Path | str | None = None):
-    if name not in NAMES:
-        raise ValueError(f'Unknown model {name}')
-    device = torch.device(device) if device else setup_device()
-    network = create_model(name)
-    source = Path(checkpoint) if checkpoint else get_active_checkpoint(name)
-    load_checkpoint(network, name, source)
-    return network.to(device), source
+def get_network(name,device=None,checkpoint=None):
+    if name not in NAMES: raise ValueError(f'Unknown model: {name}')
+    device=torch.device(device) if device else setup_device()
+    net=create_model(name); source=Path(checkpoint) if checkpoint else get_active_checkpoint(name)
+    load_checkpoint(net,name,source)
+    return net.to(device),source
 
 
 def validation_psnr(network, dataset, device, limit: int = 500):
@@ -79,16 +71,11 @@ def validation_psnr(network, dataset, device, limit: int = 500):
     network.eval()
     scores = []
     with torch.inference_mode():
-        for i, (noisy, clean) in enumerate(DataLoader(dataset, batch_size=1, shuffle=False)):
-            if limit and i >= limit:
-                break
-            noisy = noisy.to(device)
-            clean = clean.to(device)
-            pred = network(noisy).clamp(0, 1)
-            mse = ((pred-clean)**2).mean().clamp(min=1e-12)
-            scores.append(float(-10 * torch.log10(mse)))
-    if not scores:
-        raise ValueError('Validation was empty')
+        for i,(noisy,clean) in enumerate(DataLoader(dataset,batch_size=1,shuffle=False)):
+            if limit and i>=limit: break
+            noisy,clean=noisy.to(device),clean.to(device);pred=net(noisy).clamp(0,1)
+            mse=((pred-clean)**2).mean().clamp(min=1e-12);scores.append(float(-10*torch.log10(mse)))
+    if not scores: raise ValueError('Validation split is empty')
     return float(np.mean(scores))
 
 
@@ -137,14 +124,11 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, lr=1e-5,
                        'max_train_steps':max_train_steps,'source':source.name}},dest)
         else:
             stale+=1
-            if stale>=patience:
-                print('Early stopping due to stagnant validation PSNR');break
-    path=ROOT/'results'/f'{name}_training.csv';path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('w',newline='',encoding='utf8') as f:
+            if stale>=patience: print('Early stopping');break
+    with (log_dir/f'{name}_training.csv').open('w',newline='',encoding='utf8') as f:
         writer=csv.DictWriter(f,fieldnames=history[0].keys());writer.writeheader();writer.writerows(history)
-    del net
     if device.type=='cuda':torch.cuda.empty_cache()
-    print(f'Best: {best:.3f} dB; saved {dest}. Training log: {path}')
+    print(f'Best validation PSNR: {best:.4f} dB; checkpoint: {destination}')
     return history
 
 
@@ -206,14 +190,4 @@ def evaluate_model(name: str, *, checkpoint=None, patch=256, seed=42,
     (out/f'{name}_summary.json').write_text(json.dumps(summary,indent=2),encoding='utf8')
     del net
     if device.type=='cuda':torch.cuda.empty_cache()
-    print(json.dumps(summary,indent=2))
     return summary
-
-
-def summaries_as_dataframe():
-    import pandas as pd
-    results=[]
-    for name in NAMES:
-        f=ROOT/'results'/f'{name}_summary.json'
-        if f.exists():results.append(json.loads(f.read_text(encoding='utf8')))
-    return pd.DataFrame(results)
