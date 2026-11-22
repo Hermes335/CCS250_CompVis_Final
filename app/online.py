@@ -19,7 +19,7 @@ SOURCE_URLS = {
     'nafnet': 'https://raw.githubusercontent.com/megvii-research/NAFNet/main/basicsr/models/archs/NAFNet_arch.py',
 }
 WEIGHT_URLS = {
-    'restormer': 'https://github.com/swz30/Restormer/releases/download/v1.0/gaussian_color_denoising_blind.pth',
+    'restormer': 'https://github.com/swz30/Restormer/releases/download/v1.0/real_denoising.pth',
     'dncnn': 'https://github.com/cszn/KAIR/releases/download/v1.0/dncnn_color_blind.pth',
 }
 NAF_REPO = 'mikestealth/nafnet-models'  # 3rd-party HF mirror of the official SIDD checkpoint
@@ -74,7 +74,8 @@ def pretrained_path(name: str) -> Path:
         return destination
     if name not in WEIGHT_URLS:
         raise ValueError(name)
-    return download(WEIGHT_URLS[name], CACHE / 'pretrained' / (name + '.pth'), min_bytes=1_000_000)
+    filename = 'restormer_real.pth' if name == 'restormer' else name + '.pth'
+    return download(WEIGHT_URLS[name], CACHE / 'pretrained' / filename, min_bytes=1_000_000)
 
 
 def get_active_checkpoint(name: str) -> Path:

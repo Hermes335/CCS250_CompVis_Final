@@ -15,13 +15,21 @@ iMAGE ? START HERE (Windows + VS Code)
 
    Visit http://127.0.0.1:8000. Preview filters are not neural models.
 
-4. Obtain aligned SIDD and PolyU paired data. Read README.md, then run
-   notebooks/01_prepare_5000_images.ipynb with the .venv kernel. Set the
-   GT/LQ directory paths to your extracted data and keep the split manifest.
-5. Run notebooks/02_finetune_models.ipynb for each model, starting with smoke
-   mode. Complete full training before using the test set.
-6. Run notebooks/03_evaluate_and_deploy.ipynb, starting with smoke mode.
-   Review full 500-pair center-crop results before enabling deployment.
+4. Obtain aligned SIDD and PolyU paired data. The automated route is:
+
+   .\.venv\Scripts\python.exe -m scripts.prepare_real_data
+
+   This downloads the two large archives, verifies and extracts them, and
+   creates the fixed scene-separated split. Read README.md for sources and
+   disk requirements. Then inspect notebooks/01_prepare_5000_images.ipynb
+   with the .venv kernel to verify the data before training.
+5. The paired data and fixed 5,000-row manifest are already prepared in this
+   workspace. The three pretrained checkpoints are cached locally. The DnCNN
+   fine-tuning trial did not improve validation PSNR, so it was not selected.
+6. Open HeraldFolder/FINAL_SUBMISSION.ipynb for the final comparison. It is
+   mirrored as notebooks/03_evaluate_and_deploy.ipynb. Results from this run
+   belong in HeraldFolder/test/. The archived older notebook output uses a
+   different manifest and must not be cited as current evidence.
 7. For real inference, stop the preview server and restart with:
 
    $env:IMAGE_MODE="real"

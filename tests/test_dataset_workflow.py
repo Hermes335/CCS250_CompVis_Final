@@ -11,6 +11,19 @@ from scripts import prepare_mixed_dataset as mixed
 
 
 class PairedManifestTest(unittest.TestCase):
+    def test_large_scenes_are_sampled_without_crossing_splits(self):
+        rows = [{'group_id': group, 'noisy_path': f'{group}/{index}',
+                 'clean_path': f'{group}/{index}'}
+                for group in ('a', 'b', 'c', 'd') for index in range(4)]
+        with patch.object(mixed, 'QUOTAS', {'PolyU': {'train': 2, 'val': 1, 'test': 1}}):
+            selected = mixed.allocate('PolyU', rows)
+        self.assertEqual(len(selected), 4)
+        self.assertEqual({split: sum(r['split'] == split for r in selected)
+                          for split in ('train', 'val', 'test')},
+                         {'train': 2, 'val': 1, 'test': 1})
+        for group in ('a', 'b', 'c', 'd'):
+            self.assertLessEqual(len({r['split'] for r in selected if r['group_id'] == group}), 1)
+
     def test_canonical_inventories_create_fixed_grouped_split(self):
         with tempfile.TemporaryDirectory() as directory:
             data = Path(directory) / 'data'

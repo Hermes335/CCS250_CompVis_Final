@@ -61,32 +61,47 @@ def read_inventory(source):
 
 
 def allocate(source, rows, seed=42):
-    """Assign whole groups to exact quotas; fail without writing if greedy allocation cannot fit."""
+    """Split scenes first, then sample pairs evenly within each partition."""
     groups=defaultdict(list)
     for row in rows:groups[row['group_id']].append(row)
     pool=list(groups.items())
-    random.Random(seed+sum(map(ord,source))).shuffle(pool)
+    rng=random.Random(seed+sum(map(ord,source)))
     targets=QUOTAS[source]
-    # Curated inventories should have enough groups to fill exact quotas.
     count_needed=sum(targets.values())
     if len(rows)<count_needed:raise ValueError(f'{source}: {len(rows)} pairs; need at least {count_needed}')
-    # Prefer unsplit source-scene groups, but do not explode on oversize inventories.
-    # Greedy bin assignment works for well-distributed groups; if impossible ask for a revised inventory.
-    remaining=dict(targets)
+    if len(pool)<sum(value>0 for value in targets.values()):
+        raise ValueError(f'{source}: too few independent scenes for three splits')
+    n_val=max(1,round(len(pool)*targets['val']/count_needed))
+    n_test=max(1,round(len(pool)*targets['test']/count_needed))
+    n_train=len(pool)-n_val-n_test
+    if n_train<1:raise ValueError(f'{source}: too few scenes for split proportions')
+    partitions=None
+    for _ in range(256):
+        candidate=pool.copy()
+        rng.shuffle(candidate)
+        proposed={'train':candidate[:n_train],
+                  'val':candidate[n_train:n_train+n_val],
+                  'test':candidate[n_train+n_val:]}
+        if all(sum(len(items) for _,items in proposed[split])>=target
+               for split,target in targets.items()):
+            partitions=proposed
+            break
+    if partitions is None:
+        raise ValueError(f'{source}: no scene assignment met exact quotas after 256 attempts. '
+                         'Review scene grouping and sample counts; no splits were written.')
     chosen=[]
-    pool.sort(key=lambda pair:len(pair[1]),reverse=True)
-    for group, items in pool:
-        size=len(items)
-        fits=[s for s in ('train','val','test') if remaining[s]>=size]
-        if not fits:continue
-        # Put large groups into available split with most remaining capacity.
-        split=max(fits,key=lambda s: remaining[s])
-        remaining[split]-=size
-        chosen.extend({**row,'source':source,'split':split} for row in items)
-        if not any(remaining.values()):break
-    if any(remaining.values()):
-        raise ValueError(f'{source}: greedy scene allocation did not fill exact quotas; remaining={remaining}. '
-                         'This does not prove the quotas are impossible. Curate or reorder the inventory; no splits were written.')
+    for split,target in targets.items():
+        buckets=[]
+        for _,items in partitions[split]:
+            shuffled=items.copy()
+            rng.shuffle(shuffled)
+            buckets.append(shuffled)
+        count=0
+        while count<target:
+            for bucket in buckets:
+                if bucket and count<target:
+                    chosen.append({**bucket.pop(),'source':source,'split':split})
+                    count+=1
     return chosen
 
 

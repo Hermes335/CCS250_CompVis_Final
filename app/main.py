@@ -73,9 +73,12 @@ def best_from_benchmark():
             return None
         if any(any(record[k] != summaries[0][k] for k in keys) for record in summaries[1:]):
             return None
-        best = max(summaries, key=lambda r: r['psnr_db'])['model']
-        return best, (f'Highest mean PSNR across the same 500-image test set '
-                      f'({summaries[0]["patch"]} px center crops of paired real-noise images).')
+        if any(s.get('by_source', {}).get('PolyU', {}).get('number_of_images') != 150
+               for s in summaries):
+            return None
+        best = max(summaries, key=lambda r: r['by_source']['PolyU']['psnr_db'])['model']
+        return best, (f'Highest mean PSNR on 150 held-out PolyU test crops '
+                      f'({summaries[0]["patch"]} px center crops).')
     except (OSError, KeyError, ValueError, TypeError):
         return None
 

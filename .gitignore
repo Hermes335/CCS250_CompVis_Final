@@ -15,6 +15,7 @@ __pycache__/
 
 # Training datasets and generated data
 data/raw/
+data/downloads/
 data/processed/
 data/inventory/
 data/splits.csv
@@ -26,6 +27,8 @@ cache/
 weights/*.pth
 weights/*.pt
 weights/*.ckpt
+HeraldFolder/checkpoints/*.pth
+HeraldFolder/qa/
 
 # Generated evaluation files
 results/

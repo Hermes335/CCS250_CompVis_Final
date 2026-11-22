@@ -149,7 +149,7 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, lr=1e-5,
 
 
 def evaluate_model(name: str, *, checkpoint=None, patch=256, seed=42,
-                   limit=0, tile=256):
+                   limit=0, tile=256, output_dir=None):
     """Untouched test set; limit=0 means evaluate all 500 images.
     Timing uses model forward and GPU synchronization, excludes checkpoint loading.
     """
@@ -162,8 +162,13 @@ def evaluate_model(name: str, *, checkpoint=None, patch=256, seed=42,
     with torch.inference_mode():
         for _ in range(2):tiled_forward(net,first,name,tile=tile)
     if device.type=='cuda':torch.cuda.synchronize()
+    out=Path(output_dir) if output_dir is not None else ROOT/'results'
+    out.mkdir(parents=True,exist_ok=True)
+    partial=out/f'{name}_test.partial.csv'
     rows=[]
-    with torch.inference_mode():
+    with partial.open('w',newline='',encoding='utf8') as f, torch.inference_mode():
+        writer=csv.DictWriter(f,fieldnames=['index','source','noisy_psnr','psnr','ssim','runtime_ms'])
+        writer.writeheader()
         for i,(noisy,clean) in enumerate(tqdm(DataLoader(ds,batch_size=1,shuffle=False),desc=f'Testing {name}')):
             if limit and i>=limit:break
             noisy=noisy.to(device)
@@ -174,20 +179,30 @@ def evaluate_model(name: str, *, checkpoint=None, patch=256, seed=42,
             elapsed=(time.perf_counter()-start)*1000
             ground=clean[0].permute(1,2,0).numpy()
             actual=pred[0].permute(1,2,0).cpu().numpy()
-            rows.append({'index':i,'psnr':float(peak_signal_noise_ratio(ground,actual,data_range=1)),
-                         'ssim':float(structural_similarity(ground,actual,data_range=1,channel_axis=2)),
-                         'runtime_ms':elapsed})
-    out=ROOT/'results';out.mkdir(parents=True,exist_ok=True)
-    with (out/f'{name}_test.csv').open('w',newline='',encoding='utf8') as f:
-        writer=csv.DictWriter(f,fieldnames=['index','psnr','ssim','runtime_ms']);writer.writeheader();writer.writerows(rows)
+            row={'index':i,'source':ds.files[i]['source'],
+                 'noisy_psnr':float(peak_signal_noise_ratio(ground,noisy[0].permute(1,2,0).cpu().numpy(),data_range=1)),
+                 'psnr':float(peak_signal_noise_ratio(ground,actual,data_range=1)),
+                 'ssim':float(structural_similarity(ground,actual,data_range=1,channel_axis=2)),
+                 'runtime_ms':elapsed}
+            rows.append(row)
+            writer.writerow(row)
+            if (i+1)%10==0:f.flush()
+    partial.replace(out/f'{name}_test.csv')
     summary={'model':name,'checkpoint':str(source),'checkpoint_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
              'manifest_sha256':hashlib.sha256((ROOT/'data/splits.csv').read_bytes()).hexdigest(),
              'split':'test','number_of_test_images':len(rows),'limited_test':bool(limit),
              'noise_type':'paired_real','evaluation_area':'center_crop','patch':patch,'seed':seed,'tile':tile,'device':str(device),
              'psnr_db':round(float(np.mean([r['psnr'] for r in rows])),4),
+             'noisy_psnr_db':round(float(np.mean([r['noisy_psnr'] for r in rows])),4),
              'ssim':round(float(np.mean([r['ssim'] for r in rows])),5),
              'mean_runtime_ms':round(float(np.mean([r['runtime_ms'] for r in rows])),2),
              'parameters_m':round(sum(p.numel() for p in net.parameters())/1e6,3)}
+    summary['by_source']={source:{
+        'number_of_images':sum(r['source']==source for r in rows),
+        'noisy_psnr_db':round(float(np.mean([r['noisy_psnr'] for r in rows if r['source']==source])),4),
+        'psnr_db':round(float(np.mean([r['psnr'] for r in rows if r['source']==source])),4),
+        'ssim':round(float(np.mean([r['ssim'] for r in rows if r['source']==source])),5)}
+        for source in sorted({r['source'] for r in rows})}
     (out/f'{name}_summary.json').write_text(json.dumps(summary,indent=2),encoding='utf8')
     del net
     if device.type=='cuda':torch.cuda.empty_cache()
