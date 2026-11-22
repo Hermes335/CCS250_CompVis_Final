@@ -10,6 +10,7 @@ from PIL import Image, ImageOps
 
 from app.experiments import evaluate_model, get_network
 from app.inference import tiled_forward
+from app.models import ROOT
 
 
 def run_method(name: str) -> None:
@@ -21,7 +22,7 @@ def run_method(name: str) -> None:
     args = parser.parse_args()
     if args.evaluate:
         evaluate_model(name, checkpoint=args.checkpoint,
-                       output_dir=Path("HeraldFolder") / "test")
+                       patch=64, tile=64, output_dir=ROOT / "HeraldFolder" / "test")
         return
     if args.input is None or args.output is None:
         parser.error("supply --input and --output, or use --evaluate")

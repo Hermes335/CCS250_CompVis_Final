@@ -73,14 +73,15 @@ def validation_psnr(network, dataset, device, limit: int = 500):
     with torch.inference_mode():
         for i,(noisy,clean) in enumerate(DataLoader(dataset,batch_size=1,shuffle=False)):
             if limit and i>=limit: break
-            noisy,clean=noisy.to(device),clean.to(device);pred=net(noisy).clamp(0,1)
+            noisy,clean=noisy.to(device),clean.to(device);pred=network(noisy).clamp(0,1)
             mse=((pred-clean)**2).mean().clamp(min=1e-12);scores.append(float(-10*torch.log10(mse)))
     if not scores: raise ValueError('Validation split is empty')
     return float(np.mean(scores))
 
 
 def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, lr=1e-5,
-              validation_limit=500, max_train_steps=0, seed=42, patience=3, checkpoint=None):
+              validation_limit=500, max_train_steps=0, seed=42, patience=3,
+              checkpoint=None, output_dir=None):
     """Fine-tune a published checkpoint; never train from random weights by accident."""
     dataset_counts()
     torch.manual_seed(seed)
@@ -92,7 +93,15 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, lr=1e-5,
     print(f'{name}: fine-tuning on {device} from {source.name}; {len(training)} train, {len(validating)} validation')
     optimizer = torch.optim.AdamW(net.parameters(),lr=lr,weight_decay=1e-5)
     scaler = torch.amp.GradScaler('cuda',enabled=device.type=='cuda')
-    dest = ROOT/'weights'/f'{name}_finetuned.pth'; dest.parent.mkdir(exist_ok=True,parents=True)
+    if output_dir is None:
+        dest = ROOT/'weights'/f'{name}_finetuned.pth'
+        log_dir = ROOT/'results'
+    else:
+        run_dir = Path(output_dir)
+        dest = run_dir/'checkpoints'/f'{name}.pth'
+        log_dir = run_dir/'logs'
+    dest.parent.mkdir(exist_ok=True,parents=True)
+    log_dir.mkdir(exist_ok=True,parents=True)
     history=[]; best=-float('inf'); stale=0; start=time.perf_counter()
     for epoch in range(epochs):
         training.epoch=epoch
@@ -128,7 +137,7 @@ def fine_tune(name: str, *, epochs=5, batch_size=1, patch=128, lr=1e-5,
     with (log_dir/f'{name}_training.csv').open('w',newline='',encoding='utf8') as f:
         writer=csv.DictWriter(f,fieldnames=history[0].keys());writer.writeheader();writer.writerows(history)
     if device.type=='cuda':torch.cuda.empty_cache()
-    print(f'Best validation PSNR: {best:.4f} dB; checkpoint: {destination}')
+    print(f'Best validation PSNR: {best:.4f} dB; checkpoint: {dest}')
     return history
 
 

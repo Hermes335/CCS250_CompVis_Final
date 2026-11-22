@@ -51,6 +51,27 @@ A 200-step DnCNN fine-tuning trial reduced 50-crop validation PSNR from 35.54 to
 trial = ROOT/'HeraldFolder/dncnn_finetune_trial.json'
 if trial.is_file():
     print(json.loads(trial.read_text(encoding='utf8'))['selection'])"""),
+    nbf.v4.new_code_cell("""from app.data import DenoiseDataset
+from app.experiments import get_network
+from app.inference import tiled_forward
+from skimage.metrics import peak_signal_noise_ratio
+sample = DenoiseDataset(manifest, 'test', patch=64)
+noisy, clean = sample[0]
+ground = clean.permute(1, 2, 0).numpy()
+for name in NAMES:
+    network, _ = get_network(name)
+    network.eval()
+    with torch.inference_mode():
+        prediction = tiled_forward(network, noisy[None].to(next(network.parameters()).device), name, tile=64)
+    actual = prediction[0].permute(1, 2, 0).cpu().numpy()
+    measured = peak_signal_noise_ratio(ground, actual, data_range=1)
+    csv_file = ROOT/'HeraldFolder/test'/f'{name}_test.csv'
+    if csv_file.is_file():
+        with csv_file.open(newline='', encoding='utf8') as f:
+            recorded = float(next(csv.DictReader(f))['psnr'])
+        assert abs(measured - recorded) < .02, (name, measured, recorded)
+    print(name, 'sample PSNR:', round(measured, 4))
+    del network"""),
     nbf.v4.new_markdown_cell("""## Shared test
 
 All three methods use the same 500 test rows and 64 by 64 RGB center crops. PSNR and SSIM use a data range of 1. Runtime covers forward inference. Saved results are reused only when the manifest, checkpoint, crop, and sample count match; set FORCE_EVALUATION to True to rerun."""),

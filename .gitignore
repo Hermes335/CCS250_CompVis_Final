@@ -29,6 +29,7 @@ weights/*.pt
 weights/*.ckpt
 HeraldFolder/checkpoints/*.pth
 HeraldFolder/qa/
+HeraldFolder/merge_smoke/
 
 # Generated evaluation files
 results/

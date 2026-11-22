@@ -29,6 +29,7 @@ def test_notebooks_have_no_code_syntax_errors():
         '01_prepare_5000_images.ipynb',
         '02_finetune_models.ipynb',
         '03_evaluate_and_deploy.ipynb',
+        '04_finetune_new_version.ipynb',
     }
     for f in folder.glob('*.ipynb'):
         notebook = nbformat.read(f, as_version=4)

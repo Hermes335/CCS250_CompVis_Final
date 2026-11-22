@@ -3,12 +3,13 @@ import base64
 import hashlib
 import json
 import io
+import os
 from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from .models import NAMES
+from .models import NAMES, checkpoint_directory
 from .online import get_active_checkpoint
 from .inference import run, status, MODE
 from .metrics import image_metrics
@@ -55,8 +56,14 @@ def best_from_benchmark():
     on the same full 500-image test set under identical settings."""
     summaries = []
     try:
+        selected = os.environ.get('IMAGE_CHECKPOINT_DIR', '').strip()
+        if selected:
+            summary_dir = checkpoint_directory().parent
+        else:
+            saved_run = ROOT / 'HeraldFolder' / 'test'
+            summary_dir = saved_run if saved_run.is_dir() else ROOT / 'results'
         for name in NAMES:
-            file = ROOT / 'results' / f'{name}_summary.json'
+            file = summary_dir / f'{name}_summary.json'
             summary = json.loads(file.read_text(encoding='utf8'))
             checkpoint = get_active_checkpoint(name)
             if not checkpoint.is_file() or summary.get('model') != name:

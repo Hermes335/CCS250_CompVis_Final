@@ -1,17 +1,18 @@
-# Applying the iMAGE experiment-folder update
+# Versioned fine-tuning workflow
 
-Copy the files in this patch into the matching locations in your existing `CCS250_CompVis_Final` project, replacing the three `app/*.py` files and adding the notebook, launch scripts, and README. Keep your current `app/main.py`, `app/data.py`, frontend, dataset, and checkpoints.
+The experiment-folder update is installed in this repository. No file copying is needed.
 
-Before replacing files, commit or back up your current working tree. Then run:
+1. Keep the fixed data/splits.csv manifest and verified SIDD/PolyU data in place.
+2. Open notebooks/04_finetune_new_version.ipynb. Run smoke mode first, then use a GPU runtime for full training. Each run writes to a new experiments/<run-id>/ folder with checkpoints, logs, and optional test summaries.
+3. The notebook starts every method from a published checkpoint unless INITIALIZATION is changed. Changing the starting checkpoint restarts the optimizer; it does not resume optimizer state.
+4. For a fully evaluated experiment, start the app with its checkpoint folder:
+   - Windows: scripts/run_app.ps1 -CheckpointDir experiments/<run-id>/checkpoints
+   - macOS/Linux: ./scripts/run_app.sh experiments/<run-id>/checkpoints
+5. The launcher requires all three model files. The app checks checkpoint hashes against full summaries in that experiment folder before making a PolyU-based benchmark recommendation.
 
-```bash
-python -m compileall app
-python -c "from app.experiments import setup_device, dataset_counts; print(setup_device()); print(dataset_counts())"
-```
+The current submitted baseline run and report are in HeraldFolder/. The new experiment workflow does not replace them. A one-step DnCNN smoke run verified that the notebook's output_dir path writes a checkpoint and training log.
 
-The second command requires the 5,000-pair manifest and image dataset to be present. If your current checkout uses different manifest source labels or split quotas, stop and reconcile before training.
+Run project checks after changes:
 
-Windows: `./scripts/run_app.ps1`
-macOS: `chmod +x scripts/run_app.sh && ./scripts/run_app.sh`
-
-The launch scripts default to `weights/`. To use an experiment, pass its `checkpoints` directory. They require all three model files before starting.
+    .\.venv\Scripts\python.exe -m compileall -q app methods scripts
+    .\.venv\Scripts\python.exe -m pytest -q

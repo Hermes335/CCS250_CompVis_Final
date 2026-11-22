@@ -1,12 +1,12 @@
-# iMAGE ? Image Denoiser
+# iMAGE - Image Denoiser
 
-FastAPI website with preview filters and real inference using Restormer, DnCNN, and NAFNet. Three Jupyter notebooks prepare paired data, fine-tune the models, and evaluate/deploy them.
+FastAPI website with preview filters and real inference using Restormer, DnCNN, and NAFNet. Four development notebooks cover data preparation, fine-tuning, and evaluation; one executed submission notebook is in `HeraldFolder/`.
 
 ## Course method choice
 
-The team selected **three pretrained denoising models**: Restormer, pretrained DnCNN, and NAFNet. The written `Projects final (1).pdf` describes one classical, one trained-from-scratch, and one pretrained method. The team reports a later verbal clarification, relayed through a classmate, that permits three methods from one category. Keep that clarification as separate evidence; it is not stated in the PDF. The PDF names Restormer and pretrained DnCNN in its denoising menu, while NAFNet is off-menu and may need proposal approval.
+The team selected **three pretrained denoising models**: Restormer, pretrained DnCNN, and NAFNet. The written `Projects final (1).pdf` describes one classical, one trained-from-scratch, and one pretrained method. The team reports a later verbal clarification, relayed through a classmate, that permits three methods from one category. Keep that clarification as separate evidence; it is not stated in the PDF. The PDF names Restormer and pretrained DnCNN in its denoising menu. The project owner confirmed that NAFNet was approved.
 
-The three notebooks are the development workflow. The PDF requests **one executed notebook that runs top-to-bottom in Colab** plus one `.py` module per method for the final submission. Fine-tuning starts from pretrained checkpoints; the written pretrained slot permits either fine-tuning or running the pretrained model.
+The four notebooks are the development workflow. The PDF requests **one executed notebook that runs top-to-bottom in Colab** plus one `.py` module per method for the final submission. `HeraldFolder/FINAL_SUBMISSION.ipynb` has been executed locally and still needs a Colab run. Fine-tuning starts from pretrained checkpoints; the written pretrained slot permits either fine-tuning or running the pretrained model.
 
 ## Setup (Windows PowerShell)
 
@@ -65,11 +65,13 @@ The current experiment uses **5,000 aligned noisy/clean pairs**: 3,500 SIDD and 
 
 The API recommends a model from the 150 held-out PolyU test pairs only when all three deployed checkpoints match full evaluation summaries under the same manifest and settings. This avoids using SIDD scores affected by published pretraining overlap for the default recommendation. For a single upload with a clean reference, it computes metrics for that upload. Without a clean reference or matching benchmark, it makes no quality claim.
 
+For a new, isolated fine-tuning run, use [notebook 04](notebooks/04_finetune_new_version.ipynb). It writes checkpoints, logs, and evaluation summaries to a timestamped `experiments/<run-id>/` folder without replacing the current baselines. The launcher accepts the experiment's `checkpoints` folder (`scripts/run_app.ps1 -CheckpointDir experiments/<run-id>/checkpoints` on Windows). All three checkpoint files and full matching summaries are required for a benchmark recommendation. Keep smoke runs separate from final results.
+
 ## Project layout
 
 - `app/`: API, paired-image loader, training/evaluation methods, inference, model/cache adapters.
 - `methods/`: one runnable Python module per submitted model (`python -m methods.restormer`, `python -m methods.dncnn`, `python -m methods.nafnet`). Use `--input`, `--output`, and optionally `--checkpoint`, or `--evaluate` for the full test split.
-- `notebooks/`: one notebook per preparation, fine-tuning, and evaluation step.
+- `notebooks/`: four development notebooks, including an optional versioned fine-tuning workflow.
 - `HeraldFolder/`: measured validation and final test results, trial checkpoints, and submission artifacts for this run.
 - `scripts/prepare_real_data.py`: resumable download, extraction, inventory, and split preparation.
 - `scripts/prepare_mixed_dataset.py`: paired inventory validation and scene-group split generation.

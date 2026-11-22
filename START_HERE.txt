@@ -1,4 +1,4 @@
-iMAGE ? START HERE (Windows + VS Code)
+iMAGE - START HERE (Windows + VS Code)
 =====================================
 
 1. Open this project folder in VS Code and install Python/Jupyter extensions.
